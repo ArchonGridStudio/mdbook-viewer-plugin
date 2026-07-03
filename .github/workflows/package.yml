@@ -1,0 +1,46 @@
+# On-demand packaging workflow: builds the plugin distribution ZIP and publishes it as a
+# downloadable workflow artifact.
+#
+# Complements build.yml (which already uploads the ZIP on every push/PR alongside test +
+# verify). This one is manual-only, so it doesn't duplicate CI builds — use it to grab a
+# fresh distribution from any branch on demand: Actions -> Package -> "Run workflow".
+name: Package
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the branch the workflow was dispatched on
+      - name: Fetch Sources
+        uses: actions/checkout@v6
+
+      # Set up the JDK required by the IntelliJ Platform Gradle Plugin
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 21
+
+      # Configure Gradle with caching
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # Produce build/distributions/<name>-<version>.zip
+      - name: Build plugin distribution
+        run: ./gradlew buildPlugin
+
+      # Publish the ZIP as a downloadable artifact on the workflow run
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mdbook-viewer-plugin
+          path: build/distributions/*.zip
+          if-no-files-found: error

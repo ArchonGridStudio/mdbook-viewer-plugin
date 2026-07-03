@@ -1,0 +1,28 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>com.github.nbugash.mdbookviewerplugin</id>
+    <name>mdBook Viewer</name>
+    <vendor url="https://github.com/ArchonGridStudio" email="n.bugash@gmail.com">Nico Bugash</vendor>
+    <description><![CDATA[
+        <p>Renders an <b>mdBook</b> inside a tool window.</p>
+        <p>Point the plugin at a GitHub repository (public or private) or any URL that hosts an
+        mdBook. It fetches the source and renders the book internally in the background &mdash; no
+        <code>mdbook serve</code> and no local mdBook installation required. Works in JetBrains
+        Remote Development.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <!-- Grants the plugin classloader access to com.intellij.ui.jcef.* (the embedded browser). -->
+    <depends>com.intellij.modules.jcef</depends>
+
+    <resource-bundle>messages.MdBookBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="mdBook Viewer"
+                    anchor="right"
+                    icon="/icons/mdbook.svg"
+                    factoryClass="com.github.nbugash.mdbookviewerplugin.toolWindow.MdBookToolWindowFactory"/>
+        <notificationGroup id="mdBook Viewer"
+                           displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
