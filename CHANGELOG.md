@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-18
+
 ### Added
 
 - Bundled preprocessors: `mdbook-mermaid`, `mdbook-toc`, and `mdbook-katex` are bundled for all
@@ -36,3 +38,7 @@
 - The clone-and-serve path no longer shells out to a system `git` or `mdbook`; it uses the bundled
   renderer and embedded git. Unsupported platforms now report a clear message instead of a
   "not found" error.
+
+[Unreleased]: https://github.com/ArchonGridStudio/mdbook-viewer-plugin/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ArchonGridStudio/mdbook-viewer-plugin/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/ArchonGridStudio/mdbook-viewer-plugin/commits/v1.0.0
