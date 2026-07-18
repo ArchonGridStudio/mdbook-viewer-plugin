@@ -25,4 +25,10 @@
         <notificationGroup id="mdBook Viewer"
                            displayType="BALLOON"/>
     </extensions>
+
+    <applicationListeners>
+        <!-- Deletes the extracted-mdBook cache on uninstall/disable so no binary is orphaned (FR-008). -->
+        <listener class="com.github.nbugash.mdbookviewerplugin.runtime.MdBookCacheCleaner"
+                  topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    </applicationListeners>
 </idea-plugin>

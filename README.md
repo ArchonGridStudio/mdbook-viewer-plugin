@@ -12,11 +12,17 @@ Point it at a GitHub repository (public or private) or any URL that hosts an mdB
 fetches the source and renders the book internally, in the background. No `mdbook serve` and no
 local mdBook installation required.
 
+The plugin is fully self-contained: it bundles the mdBook renderer for every supported platform
+and fetches repositories with an embedded, pure-JVM git. You do **not** need `mdbook` or `git`
+installed, and nothing is downloaded at install or first run.
+
 ## Features
 
 - A dedicated **mdBook Viewer** tool window that displays the book in an embedded browser.
 - Point it at a GitHub repository (public or private), or any URL that hosts an mdBook.
 - Fetches the source and renders the book internally -- no `mdbook serve`, no local mdBook install.
+- Bundles the common preprocessors -- **mermaid** (diagrams), **toc** (table of contents), and
+  **katex** (math) -- so books that use them render without any extra install.
 - Fully supported in JetBrains Remote Development / Gateway.
 
 ## Getting started
@@ -27,7 +33,11 @@ local mdBook installation required.
 
 ## Requirements
 
-- An IntelliJ-based IDE, build 2025.3 (253) or newer.
+- An IntelliJ-based IDE, build 2026.2 (262) or newer.
+- A supported platform: Windows x64, macOS (Intel or Apple Silicon), or Linux x64. On other
+  platforms (e.g. Linux ARM64) the plugin reports that no bundled renderer is available.
+- No external command-line tools. The mdBook renderer, the git client, and the bundled
+  preprocessors (mermaid, toc, katex) are all included.
 
 ## Installation
 
