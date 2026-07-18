@@ -9,3 +9,13 @@ bin
 # Plugin signing key material (see PUBLISHING.md 1.4) -- never commit
 *.pem
 *.crt
+
+# Bundled mdBook binaries are fetched + checksum-verified at build time, not committed
+# (see build.gradle.kts `bundleMdbook`, gradle.properties `mdbookVersion`).
+/src/main/resources/mdbook/
+
+# Bundled preprocessor binaries (mermaid, toc, katex) — likewise fetched at build time
+# (see build.gradle.kts `bundlePreprocessors`, gradle.properties `mdbook*Tag`).
+/src/main/resources/mdbook-tools/
+specs/
+.specify

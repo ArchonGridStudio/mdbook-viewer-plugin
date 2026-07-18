@@ -35,8 +35,24 @@ class CloneDiagnosticsTest {
     }
 
     @Test
+    fun `flags JGit not-authorized transport error as an auth failure`() {
+        // JGit HTTPS auth failure phrasing (org.eclipse.jgit.api.errors.TransportException).
+        assertTrue(isAuthFailure("https://github.com/org/private.git: not authorized"))
+    }
+
+    @Test
+    fun `flags JGit authentication-required transport error as an auth failure`() {
+        assertTrue(isAuthFailure("org.eclipse.jgit.errors.TransportException: Authentication is required but no CredentialsProvider has been registered"))
+    }
+
+    @Test
     fun `does not flag a network error as an auth failure`() {
         assertFalse(isAuthFailure("fatal: unable to access 'https://github.com/x/y.git/': Could not resolve host: github.com"))
+    }
+
+    @Test
+    fun `does not flag a missing repository as an auth failure`() {
+        assertFalse(isAuthFailure("org.eclipse.jgit.api.errors.TransportException: https://github.com/x/nope.git: not found"))
     }
 
     @Test

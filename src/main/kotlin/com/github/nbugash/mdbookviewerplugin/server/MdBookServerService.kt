@@ -1,12 +1,12 @@
 package com.github.nbugash.mdbookviewerplugin.server
 
 import com.github.nbugash.mdbookviewerplugin.MdBookBundle
+import com.github.nbugash.mdbookviewerplugin.runtime.BundledMdBook
+import com.github.nbugash.mdbookviewerplugin.runtime.BundledPreprocessors
 import com.github.nbugash.mdbookviewerplugin.settings.MdBookSecrets
 import com.github.nbugash.mdbookviewerplugin.util.BookTomlLocator
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.configurations.PathEnvironmentVariableUtil
-import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessListener
@@ -51,15 +51,14 @@ class MdBookServerService(private val project: Project) : Disposable {
     fun serveRepo(cloneUrl: String, indicator: ProgressIndicator): String {
         stop()
         try {
-            val git = PathEnvironmentVariableUtil.findInPath("git")
-                ?: throw MdBookServeException(MdBookBundle["notification.gitNotFound"])
-            val mdbook = PathEnvironmentVariableUtil.findInPath("mdbook")
-                ?: throw MdBookServeException(MdBookBundle["notification.mdbookNotFound"])
+            // Bundled renderer + verify FIRST: fail fast with a clear message on an unsupported
+            // platform (FR-007) or a non-functional binary (FR-010) before doing any network work.
+            val mdbook = BundledMdBook().resolveExecutable(indicator)
 
             indicator.text = MdBookBundle["status.cloning"]
             val dir = Files.createTempDirectory("mdbook-viewer-")
             tempDir = dir
-            cloneRepo(git, cloneUrl, dir)
+            SourceFetcher().fetch(cloneUrl, MdBookSecrets.getToken(), dir, indicator)
             indicator.checkCanceled()
 
             val bookRoot = BookTomlLocator.findBookRoot(dir)
@@ -73,59 +72,25 @@ class MdBookServerService(private val project: Project) : Disposable {
         }
     }
 
-    private fun cloneRepo(git: File, cloneUrl: String, dir: Path) {
-        val cmd = GeneralCommandLine(git.absolutePath, "clone", "--depth", "1")
-        val token = MdBookSecrets.getToken()
-        if (token != null && cloneUrl.startsWith("https://", ignoreCase = true)) {
-            // Supply the token as the HTTPS password via an inline credential helper. The
-            // helper reads the value from the environment ($MDBOOK_GIT_TOKEN), so the token
-            // never appears in argv (ps) or in the stderr we surface on failure.
-            cmd.addParameters(
-                "-c", "credential.helper=",
-                "-c", "credential.helper=!f() { echo username=x-access-token; echo \"password=\$MDBOOK_GIT_TOKEN\"; }; f",
-            )
-        }
-        cmd.addParameters(cloneUrl, dir.toString())
-        // Never block on an interactive credential/host-key prompt: fail fast instead.
-        // Non-token auth falls back to the user's git credentials (SSH keys, credential helper).
-        cmd.withEnvironment("GIT_TERMINAL_PROMPT", "0")
-        cmd.withEnvironment("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
-        if (token != null) cmd.withEnvironment("MDBOOK_GIT_TOKEN", token)
-
-        val output = try {
-            CapturingProcessHandler(cmd).runProcess(CLONE_TIMEOUT_MS)
-        } catch (e: ExecutionException) {
-            throw MdBookServeException(MdBookBundle["notification.cloneFailed", e.message ?: ""])
-        }
-        if (output.isTimeout) throw MdBookServeException(MdBookBundle["notification.cloneFailed", "timed out"])
-        if (output.exitCode != 0) {
-            val stderr = output.stderr.trim()
-            // A private repo without a valid token lands here; give a token-specific hint so the
-            // user knows to fix credentials rather than the URL. Either way we throw, so the book
-            // is never served/rendered.
-            val message = if (isAuthFailure(stderr)) {
-                MdBookBundle["notification.cloneAuthFailed"]
-            } else {
-                MdBookBundle["notification.cloneFailed", stderr.take(300)]
-            }
-            throw MdBookServeException(message)
-        }
-    }
-
     private fun startServe(mdbook: File, bookRoot: Path, indicator: ProgressIndicator): String {
         val port = NetUtils.findAvailableSocketPort()
         val cmd = GeneralCommandLine(mdbook.absolutePath, "serve", "--port", port.toString())
             .withWorkDirectory(bookRoot.toFile())
+        prependPreprocessorsToPath(cmd)
         val handler = try {
             OSProcessHandler(cmd)
         } catch (e: ExecutionException) {
-            throw MdBookServeException(e.message ?: MdBookBundle["notification.mdbookNotFound"])
+            throw MdBookServeException(MdBookBundle["notification.mdbookVerifyFailed"])
         }
 
         val urlRef = AtomicReference<String?>(null)
+        // Capture mdBook's own output so a failure can report the real cause (a missing
+        // preprocessor/backend, a broken SUMMARY.md, ...) instead of a bare exit code.
+        val output = StringBuilder()
         val latch = CountDownLatch(1)
         handler.addProcessListener(object : ProcessListener {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
+                synchronized(output) { if (output.length < MAX_OUTPUT_CAPTURE) output.append(event.text) }
                 if (urlRef.get() != null) return
                 val text = event.text
                 val url = parseServingUrl(text)
@@ -148,9 +113,28 @@ class MdBookServerService(private val project: Project) : Disposable {
             if (handler.isProcessTerminated) break
         }
         if (urlRef.get() == null && handler.isProcessTerminated) {
-            throw MdBookServeException(MdBookBundle["notification.serveFailed", handler.exitCode ?: -1])
+            val detail = extractMdBookError(synchronized(output) { output.toString() })
+            throw MdBookServeException(MdBookBundle["notification.serveFailed", handler.exitCode ?: -1, detail])
         }
         return urlRef.get() ?: "http://localhost:$port"
+    }
+
+    /**
+     * Makes the bundled preprocessors (mermaid, toc, katex) discoverable by prepending their
+     * directory to the serve process's PATH — mdBook invokes each `mdbook-<name>` from PATH when a
+     * book opts in via `[preprocessor.<name>]`. Best-effort: a book that needs none is unaffected,
+     * and one that needs a preprocessor we could not prepare still fails with mdBook's own message.
+     *
+     * Note: some preprocessors also expect their JS/CSS assets (e.g. `mermaid.min.js`) in the book,
+     * which authors commit via `mdbook-<tool> install`; the bundled binary makes the build succeed,
+     * and books set up that way render fully.
+     */
+    private fun prependPreprocessorsToPath(cmd: GeneralCommandLine) {
+        val binDir = runCatching { BundledPreprocessors().resolveBinDir() }.getOrNull() ?: return
+        val current = System.getenv("PATH").orEmpty()
+        val combined = if (current.isEmpty()) binDir.absolutePath
+        else binDir.absolutePath + File.pathSeparator + current
+        cmd.withEnvironment("PATH", combined)
     }
 
     @Synchronized
@@ -164,8 +148,8 @@ class MdBookServerService(private val project: Project) : Disposable {
     override fun dispose() = stop()
 
     companion object {
-        private const val CLONE_TIMEOUT_MS = 120_000
         private const val SERVE_TIMEOUT_MS = 120_000
+        private const val MAX_OUTPUT_CAPTURE = 16_384
 
         fun getInstance(project: Project): MdBookServerService = project.service()
     }
